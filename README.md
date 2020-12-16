@@ -3,6 +3,23 @@ Simpool is a very simple pooled memory allocator that offers recipes
 for use in C++ by overloading `::operator new(std::size_t)` and
 fulfilling an STL allocator concept.
 
+## This Fork
+This fork adjusted SimPool for exponentially quicker deallocate speeds by changing the BlockList to be a double linked list and utilizing a hashmap to track allocations. \
+This way we do not need to iterate the BlockList but can get the block from the data pointer while getting the previous datablock (which is needed to remove the block from the list) though the double linked list elements attributes.\
+While increasing the needed memory, it will increase the free performance enormously, especially if a lot separate allocations are done.\
+Simpool now works exclusively on windows with MSCV as a compiler, rather than exclusively on linux. A version that supports both is easily doable, but was not needed for my application.\
+Additionally I added mutexe to make the DynamicSizePool thread safe. The FixedSizePool is not thread safe and you need to manage it with care.
+
+I made this fork with usage as a custom allocator for the recastnavigations navigation mesh generation process in mind and optimized it for that specific purpose.
+If you generate TileCaches for huge worlds you quickly run into allocation issues. \
+In general if you have a lot of threads that often allocate small amounts of memory, allocating memory quickly becomes the main bottleneck. \
+To solve this I investigated several memory pool implementations that allowed dynamic sized blocks, however none was quick enough. \
+I found that SimPool was a good start, however due to the nature of the application I used it for, where at one points gigabytes of memory in small singular allocations was needed, the deallocation was not performant enough. \
+The deallocation time complexity was on average O(n/2) where n is the amounts of singular currently allocated blocks, since we need to iterate the linked list to find the relevant block. We utilize a hash table to keep track of allocations traded memory for a further big performance while doing smaller changes to maintaing full functionality. \
+While developed with a specific application in mind, it will be useable for all applications that profit from a memory pool. \
+Additionally it is faster than the normal SimPool in almost all applications.
+
+
 ## Background
 The concept behind a pooled memory allocator is to reduce the number
 of system calls to allocate memory, and instead takes memory from an

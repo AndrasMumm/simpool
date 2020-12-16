@@ -17,7 +17,7 @@ To solve this I investigated several memory pool implementations that allowed dy
 I found that SimPool was a good start, however due to the nature of the application I used it for, where at one points gigabytes of memory in small singular allocations was needed, the deallocation was not performant enough. \
 The deallocation time complexity was on average O(n/2) where n is the amounts of singular currently allocated blocks, since we need to iterate the linked list to find the relevant block. We utilize a hash table to keep track of allocations traded memory for a further big performance while doing smaller changes to maintaing full functionality. \
 While developed with a specific application in mind, it will be useable for all applications that profit from a memory pool. \
-Additionally it is faster than the normal SimPool in almost all applications.
+Additionally it is faster than the normal SimPool in almost all applications. In my specific application where deallocations where the bottleneck and memory usage for the hashmap is not an issue, I saw an increase of about 4x (Average ~3.89x over several tests) in performance, however I did not collect enough data to promise anything on that scale.
 
 
 ## Background

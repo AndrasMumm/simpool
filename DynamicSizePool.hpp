@@ -226,7 +226,7 @@ protected:
 	}
 
 	std::mutex mutex;
-	std::map<void*, Block*> allocatedAddressToBlock;
+	std::unordered_map<void*, Block*> allocatedAddressToBlock;
 
 public:
 	static inline DynamicSizePool* getInstance() {

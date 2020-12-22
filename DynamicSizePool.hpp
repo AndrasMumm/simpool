@@ -326,10 +326,12 @@ public:
 
 	std::size_t allocatedSize()
 	{
-		mutex.lock();
-		auto ret = allocBytes;
-		mutex.unlock();
-		return ret;
+		return allocBytes;
+	}
+
+	std::size_t managedSize()
+	{
+		return totalBytes;
 	}
 
 	std::size_t totalSize() {

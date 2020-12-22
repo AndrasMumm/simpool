@@ -271,6 +271,8 @@ public:
 		auto ptr = usedBlocks->data;
 		allocatedAddressToBlock.insert({ ptr, usedBlocks });
 		mutex.unlock();
+		//Resetting the memory we return
+		memset(ptr, 0, size);
 		// Return the new pointer
 		return ptr;
 	}

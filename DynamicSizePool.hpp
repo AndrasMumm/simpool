@@ -1,6 +1,9 @@
 #ifndef _DYNAMICSIZEPOOL_HPP
 #define _DYNAMICSIZEPOOL_HPP
 
+//If defined there will be checks to ensure that the hashmaps entries are legit and a block is not allocated two times.
+#define SIMPOOL_CHECK_FOR_BUGS 0
+
 #include <algorithm>
 #include <cstddef>
 #include <cassert>
@@ -59,10 +62,9 @@ protected:
 	void allocateBlock(struct Block*& curr, struct Block*& prev, const std::size_t size) {
 		const std::size_t sizeToAlloc = std::max(size, minBytes);
 		curr = prev = NULL;
-		void* data = NULL;
 
 		// Allocate data
-		data = MA::allocate(sizeToAlloc);
+		void* data = MA::allocate(sizeToAlloc);
 		totalBytes += sizeToAlloc;
 		assert(data);
 
@@ -84,7 +86,6 @@ protected:
 			next->prev = curr;
 		}
 
-
 		// Insert
 		if (prev)
 		{
@@ -94,6 +95,7 @@ protected:
 		else
 		{
 			freeBlocks = curr;
+			freeBlocks->prev = nullptr;
 		}
 	}
 
@@ -116,6 +118,11 @@ protected:
 			newBlock->isHead = false;
 			//Since we will remove this block from the freelist, we basically replace it with the newBlock
 			newBlock->next = curr->next;
+			if (newBlock->next)
+			{
+				newBlock->next->prev = newBlock;
+			}
+
 			next = newBlock;
 			//Updating current blocks size
 			curr->size = size;
@@ -133,6 +140,10 @@ protected:
 		else
 		{
 			freeBlocks = next;
+			if (freeBlocks)
+			{
+				freeBlocks->prev = nullptr;
+			}
 		}
 	}
 
@@ -143,18 +154,14 @@ protected:
 		{
 			//Cutting block out of linked list chain.
 			prev->next = curr->next;
-			if (curr->next)
+			if (prev->next)
 			{
-				curr->next->prev = prev;
+				prev->next->prev = prev;
 			}
 		}
 		else
 		{
 			usedBlocks = curr->next;
-			if (curr->next)
-			{
-				curr->next->prev = nullptr;
-			}
 			if (usedBlocks)
 			{
 				usedBlocks->prev = nullptr;
@@ -175,6 +182,11 @@ protected:
 			//We can merge both of the blocks.
 			prev->size = prev->size + curr->size;
 			blockPool.deallocate(curr); // keeps data
+			prev->next = next;
+			if(prev->next)
+			{
+				prev->next->prev = prev;
+			}
 			curr = prev;
 		}
 		else if (prev) {
@@ -183,9 +195,9 @@ protected:
 		}
 		else {
 			freeBlocks = curr;
-			if (curr->prev)
+			if (freeBlocks)
 			{
-				curr->prev = nullptr;
+				freeBlocks->prev = nullptr;
 			}
 		}
 
@@ -193,17 +205,17 @@ protected:
 		if (next && curr->data + curr->size == next->data && !next->isHead) {
 			curr->size = curr->size + next->size;
 			curr->next = next->next;
-			if (next->next)
+			if (curr->next)
 			{
-				next->next->prev = curr;
+				curr->next->prev = curr;
 			}
 			blockPool.deallocate(next); // keep data
 		}
 		else {
 			curr->next = next;
-			if (next)
+			if (curr->next)
 			{
-				next->prev = curr;
+				curr->next->prev = curr;
 			}
 		}
 	}
@@ -225,11 +237,16 @@ protected:
 		}
 	}
 
-	std::mutex mutex;
-	std::unordered_map<void*, Block*> allocatedAddressToBlock;
+
+	static std::mutex& getMutex()
+	{
+		static std::mutex m;
+		return m;
+	}
+	std::map<void*, Block*> allocatedAddressToBlock;
 
 public:
-	static inline DynamicSizePool* getInstance() {
+	static DynamicSizePool* getInstance() {
 		static DynamicSizePool instance;
 		return &instance;
 	}
@@ -245,7 +262,11 @@ public:
 	~DynamicSizePool() { freeAllBlocks(); }
 
 	void* allocate(std::size_t size) {
-		mutex.lock();
+		if (size == 0)
+		{
+			size = 1;
+		}
+		getMutex().lock();
 		struct Block* best, * prev;
 		findUsableBlock(best, prev, size);
 
@@ -268,50 +289,75 @@ public:
 		// Increment the allocated size
 		allocBytes += size;
 
-		auto ptr = usedBlocks->data;
-		allocatedAddressToBlock.insert({ ptr, usedBlocks });
-		mutex.unlock();
+#ifdef SIMPOOL_CHECK_FOR_BUGS
+		auto it = allocatedAddressToBlock.find(usedBlocks);
+		if (it != allocatedAddressToBlock.end())
+		{
+			std::cout << "Block double allocation detected" << std::endl;
+		}
+
+		if (usedBlocks->size != size)
+		{
+			std::cout << "Size diff" << std::endl;
+		}
+#endif
+
+		allocatedAddressToBlock.insert({usedBlocks->data, usedBlocks});
 		//Resetting the memory we return
-		memset(ptr, 0, size);
+		memset(usedBlocks->data, 0, usedBlocks->size);
+		getMutex().unlock();
 		// Return the new pointer
-		return ptr;
+		return usedBlocks->data;
 	}
 
 	bool deallocate(void* ptr) {
 		assert(ptr);
 
-		mutex.lock();
+		getMutex().lock();
 
 		// Find the associated block
-		/*
-		struct Block* curr = usedBlocks, * prev = NULL;
-		for (; curr && curr->data != ptr; curr = curr->next) {
-			prev = curr;
-		}
-		if (!curr)
-		{
-			mutex.unlock();
-			return;
-		}
-		*/
 		auto it = allocatedAddressToBlock.find(ptr);
 		if (it == allocatedAddressToBlock.end())
 		{
-			mutex.unlock();
+			getMutex().unlock();
 			return false;
 		}
-
+		//Getting block from iterator
 		struct Block* curr = it->second;
-		/*
+
+#ifdef SIMPOOL_CHECK_FOR_BUGS
+		//Sanity checks for debugging
+		size_t index_ = 0;
+		struct Block* curr_ = usedBlocks, * prev_ = NULL;
+		for (; curr_ && curr_->data != ptr; curr_ = curr_->next)
+		{
+			prev_ = curr_;
+			index_++;
+		}
+
+		if (ptr != (void*)curr->data)
+		{
+		printf("Ptr %p != curr->data %p", ptr, curr->data);;
+		}
+		if (ptr != (void*)curr_->data)
+		{
+			printf("Ptr %p != curr_->data %p", ptr, curr_->data);
+		}
 		if (curr != curr_)
 		{
-			std::cout << Format("curr %p != curr_ %p", prev, curr_) << std::endl;
+			size_t index = 0;
+			struct Block* tmp = usedBlocks;
+			for (; tmp && tmp != curr; tmp = tmp->next)
+			{
+				index_++;
+			}
+			printf("curr %p at index %d != curr_ %p at index %d", curr, index, curr_, index_);
 		}
-		else if (prev_ != prev)
+		if (curr->prev != prev_)
 		{
-			std::cout << Format("prev %p != prev_ %p", prev, prev_) << std::endl;
+			printf("curr->prev %p != prev_ %p", curr->prev, prev_);
 		}
-		*/
+#endif
 
 		allocatedAddressToBlock.erase(it);
 
@@ -320,7 +366,7 @@ public:
 
 		// Release it
 		releaseBlock(curr, curr->prev);
-		mutex.unlock();
+		getMutex().unlock();
 		return true;
 	}
 
@@ -335,17 +381,17 @@ public:
 	}
 
 	std::size_t totalSize() {
-		mutex.lock();
+		getMutex().lock();
 		auto ret = totalBytes + blockPool.totalSize();
-		mutex.unlock();
+		getMutex().unlock();
 		return ret;
 	}
 
 	std::size_t numFreeBlocks() {
-		mutex.lock();
+		getMutex().lock();
 		std::size_t nb = 0;
 		for (struct Block* temp = freeBlocks; temp; temp = temp->next) nb++;
-		mutex.unlock();
+		getMutex().unlock();
 		return nb;
 	}
 

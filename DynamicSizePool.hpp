@@ -277,9 +277,10 @@ public:
 		return ptr;
 	}
 
-	void deallocate(void* ptr) {
-		mutex.lock();
+	bool deallocate(void* ptr) {
 		assert(ptr);
+
+		mutex.lock();
 
 		// Find the associated block
 		/*
@@ -297,7 +298,7 @@ public:
 		if (it == allocatedAddressToBlock.end())
 		{
 			mutex.unlock();
-			return;
+			return false;
 		}
 
 		struct Block* curr = it->second;
@@ -320,6 +321,7 @@ public:
 		// Release it
 		releaseBlock(curr, curr->prev);
 		mutex.unlock();
+		return true;
 	}
 
 	std::size_t allocatedSize()

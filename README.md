@@ -4,21 +4,23 @@ for use in C++ by overloading `::operator new(std::size_t)` and
 fulfilling an STL allocator concept.
 
 ## This Fork
-This fork adjusted SimPool for exponentially quicker deallocate speeds by changing the BlockList to be a double linked list and utilizing a hashmap to track allocations. \
-This way we do not need to iterate the BlockList but can get the block from the data pointer while getting the previous datablock (which is needed to remove the block from the list) though the double linked list elements attributes.\
-While increasing the needed memory, it will increase the free performance enormously, especially if a lot separate allocations are done.\
-Simpool now works exclusively on windows with MSCV as a compiler, rather than exclusively on linux. A version that supports both is easily doable, but was not needed for my application.\
-Additionally I added mutexe to make the DynamicSizePool thread safe. The FixedSizePool is not thread safe and you need to manage it with care.
+This fork adjusts SimPool for quicker deallocate speeds by:
 
-I made this fork with usage as a custom allocator for the recastnavigations navigation mesh generation process in mind and optimized it for that specific purpose.
-If you generate TileCaches for huge worlds you quickly run into allocation issues. \
-In general if you have a lot of threads that often allocate small amounts of memory, allocating memory quickly becomes the main bottleneck. \
-To solve this I investigated several memory pool implementations that allowed dynamic sized blocks, however none was quick enough. \
-I found that SimPool was a good start, however due to the nature of the application I used it for, where at one points gigabytes of memory in small singular allocations was needed, the deallocation was not performant enough. \
-The deallocation time complexity was on average O(n/2) where n is the amounts of singular currently allocated blocks, since we need to iterate the linked list to find the relevant block. We utilize a hash table to keep track of allocations traded memory for a further big performance while doing smaller changes to maintaing full functionality. \
-While developed with a specific application in mind, it will be useable for all applications that profit from a memory pool. \
-Additionally it is faster than the normal SimPool in almost all applications. In my specific application where deallocations where the bottleneck and memory usage for the hashmap is not an issue, I saw an increase of about 4x (Average ~3.89x over several tests) in performance, however I did not collect enough data to promise anything on that scale.
+1. Changing the BlockList to be a double linked list.
+2. Utilizing a hashmap to track allocations.
 
+This way there is no need to iterate the BlockList to get the block to free.  
+While increasing the needed memory, it accelerates the deallocate performance enormously, especially if a lot of different allocations are done without being freed.  
+The average deallocation time complexity changed from **O(n/2)**, where **n** is the amount of allocated blocks, to a constant **O(1)**.
+
+This fork works exclusively on Windows with MSCV as a compiler, rather than exclusively on linux like the original simpool.  
+Support for multiple compilers and architectures is a planned feature in the future.
+
+Additionally DynamicSizePool was made thread safe utilizing std::mutex.  
+FixedSizePool is not thread safe and you need to manage it with care.  
+A better and more performant thread safe solution might be added in the future.
+
+In a real world application test, where previously deallocations where the main bottleneck, performance increased by about **~4x** in comparison to the original simpool were observed, however not enouch data was collect to promise anything of that scale.
 
 ## Background
 The concept behind a pooled memory allocator is to reduce the number
@@ -73,13 +75,10 @@ int)*8` allocations.
 The public non-constructor/destructor methods are:
 
 - `T* allocate()`: returns a pointer to memory for an object `T`
-- `void deallocate(T* ptr)`: Tells the pool that `ptr` will no longer
-  be used. The behavior is undefined if `ptr` was not returned from
-  `allocate()` above.
-- `std::size_t allocatedSize() const`: Return the allocated size,
-  without internal overhead.
-- `std::size_t totalSize() const`: Return the total size of all
-  allocations within.
+- `void deallocate(T* ptr)`: Tells the pool that `ptr` will no longer be used and returns true.  
+   The behavior is undefined if `ptr` was not returned from `allocate(std::size_t)` above.
+- `std::size_t allocatedSize() const`: Return the allocated size, without internal overhead.
+- `std::size_t totalSize() const`: Return the total size of all allocations within.
 - `std::size_t numPools() const`: Return the number of fixed size
   pools.
 
@@ -100,13 +99,11 @@ made with `IA` and `MA`.
 The public non-constructor/destructor methods are:
 
 - `void* allocate(std::size_t size)`: returns a pointer to `size` bytes of memory.
-- `void deallocate(T* ptr)`: Tells the pool that `ptr` will no longer
-  be used. The behavior is undefined if `ptr` was not returned from
-  `allocate(std::size_t)` above.
-- `std::size_t allocatedSize() const`: Return the allocated size,
-  without internal overhead.
-- `std::size_t totalSize() const`: Return the total size of the class
-  and all allocations within.
+- `void deallocate(T* ptr)`: Tells the pool that `ptr` will no longer be used.  
+   If `ptr` was not returned from `allocate()` above, nothing happens and false is returned.
+- `std::size_t allocatedSize() const`: Return the allocated size that is currently not free.
+- `std::size_t managedSize() const`: Returns the totals size of managed memory, regardless of if currently free or not.
+- `std::size_t totalSize() const`: Return the total size of the class and all allocations within.
 - `std::size_t numFreeBlocks() const`: Return the number of free blocks.
 - `std::size_t numUsedBlocks() const`: Return the number of used blocks.
 

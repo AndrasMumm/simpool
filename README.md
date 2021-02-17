@@ -20,7 +20,7 @@ Additionally DynamicSizePool was made thread safe utilizing std::mutex.
 FixedSizePool is not thread safe and you need to manage it with care.  
 A better and more performant thread safe solution might be added in the future.
 
-In a real world application test, where previously deallocations where the main bottleneck, performance increased by about **~4x** in comparison to the original simpool were observed, however not enouch data was collect to promise anything of that scale.
+In a real world application test, where previously deallocations where the main bottleneck, a performance increas of up to about **~4x** in comparison to the original simpool were observed, however not enouch data was collect to promise anything of that scale.
 
 ## Background
 The concept behind a pooled memory allocator is to reduce the number
